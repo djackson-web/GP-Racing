@@ -5,12 +5,23 @@ public class AIController : RacerBase
     public enum AIState { Race, Overtake, Defend, Recover }
 
     private const float LowSpeedSteeringThreshold = 20f;
+    // Two-segment high-speed steering curve: full authority to SteeringFullAuthoritySpeed,
+    // first reduction to SteeringMidFactor at SteeringMidSpeed, shallower reduction to
+    // _minimumHighSpeedSteeringFactor at top speed. Keeps chicane feel neutral while
+    // limiting over-correction at race speeds.
+    private const float SteeringFullAuthoritySpeed = 40f;
+    private const float SteeringMidSpeed = 80f;
+    private const float SteeringMidFactor = 0.75f;
     private const float StartDelaySkillFactor = 0.15f;
     private const float MaxConsistencyNoiseRange = 0.05f;
     private const float OvertakeAggressionThreshold = 0.35f;
     private const float DefendAggressionThreshold = 0.25f;
     private const float DefendReactionTimerScale = 0.4f;
     private const float OvertakeSpeedBoostMultiplier = 1.04f;
+    // dot(overtakeSide * right, lookAheadForward) — negative values mean the AI is heading
+    // to the outside of an upcoming corner; suppress the attempt below this threshold.
+    private const float OvertakeCurvatureSuppressThreshold = -0.05f;
+    private const float OvertakeCurvatureLookAheadTime = 2.5f;
     private const float RecoverMinimumTime = 1f;
     private const float CollisionHeadingKick = 15f;
     private const float RecoverEntryHeadingDeviation = 25f;
@@ -18,7 +29,7 @@ public class AIController : RacerBase
     // Lift engages once the car heads this far past its intended path, measured
     // as a fraction of the room left between that path and the boundary.
     private const float EdgeDangerLiftStart = 0.25f;
-    private const float WideLineMaximumLift = 0.25f;
+    private const float WideLineMaximumLift = 0.05f;
     private const float WideLineMinimumTrackWidth = 1f;
     private const float DriftPredictionTime = 0.5f;
     private const float DriftRateSmoothing = 10f;
@@ -35,11 +46,15 @@ public class AIController : RacerBase
     private const float SteeringOffsetMargin = 0.9f;
     public const float CurvatureStepDistance = 2.5f;
     private const int BrakingLookAheadSteps = 12;
+    private const int DynamicLookAheadSteps = 8;
     // Zones further away than this are ignored — braking from top speed to the
     // slowest corner takes well under this distance.
     private const float BrakingHorizonDistance = 25f;
     // Finish braking this far before the zone entry so turn-in starts settled.
     private const float BrakingEntrySlack = 1f;
+    // apexTiming shifts the brake point by this fraction of the braking zone length.
+    // Late apexers (−1) brake deeper into the zone; early apexers (+1) initiate sooner.
+    private const float ApexBrakeShiftScale = 0.15f;
     // Overspeed below this is coasted off through drag/engine braking — the
     // brakes are reserved for real braking zones, not mid-corner trim.
     private const float CoastingOverspeedTolerance = 8f;
@@ -47,13 +62,48 @@ public class AIController : RacerBase
     // hard between full power and nothing.
     private const float ThrottleSoftnessRange = 5f;
 
+    // Fraction of the local road half-width the AI may use before the wall.
+    // 0.80 leaves 20 % for vehicle body and kerb buffer on either side.
+    private const float TrackUsableFraction = 0.80f;
+    // Vehicle half-width in Unity units (0.3 m × 0.1 Unity/m).
+    private const float VehicleHalfWidth = 0.03f;
+    // Hard floor so the corridor never collapses on very narrow sections.
+    private const float MinimumCorridorHalfWidth = 0.15f;
+
+    // Lateral boundary at the car's current position: scales with local road
+    // width so the AI always has room proportional to the actual track surface.
+    protected override float MaxLateralOffset
+    {
+        get
+        {
+            if (SplineTrack != null && SplineTrack.HalfWidth > 0f)
+            {
+                float localHalf = SplineTrack.SampleHalfWidth(splineProgress);
+                return Mathf.Max(localHalf * TrackUsableFraction - VehicleHalfWidth, MinimumCorridorHalfWidth);
+            }
+            return base.MaxLateralOffset;
+        }
+    }
+
+    // The narrowest the corridor ever gets, derived from SplineTrack.HalfWidth
+    // (the track-wide minimum). Used to bake the racing line at a consistent
+    // width that stays valid at every point around the circuit.
+    private float GlobalCorridorHalfWidth
+    {
+        get
+        {
+            float globalHalf = SplineTrack != null ? SplineTrack.HalfWidth : base.MaxLateralOffset;
+            return Mathf.Max(globalHalf * TrackUsableFraction - VehicleHalfWidth, MinimumCorridorHalfWidth);
+        }
+    }
+
     [SerializeField] private float _topSpeed = 220f;
     [SerializeField] private float _acceleration = 25f;
     [SerializeField] private float _brakeForce = 110f;
     [SerializeField] private float _drag = 30f;
     [SerializeField] private float _engineBrakingForce = 60f;
     [SerializeField] private float _steeringRate = 60f;
-    [SerializeField] private float _minimumHighSpeedSteeringFactor = 0.35f;
+    [SerializeField] private float _minimumHighSpeedSteeringFactor = 0.50f;
 
     [Header("Driver Profile")]
     [SerializeField] private DriverProfile _profile;
@@ -61,9 +111,9 @@ public class AIController : RacerBase
     [Header("Race Behaviour")]
     [SerializeField] private float _overtakeThresholdProgress = 0.008f;
     [SerializeField] private float _defendThresholdProgress = 0.010f;
-    [SerializeField] private float _overtakeOffset = 0.3f;
-    [SerializeField] private float _defendLateralOffsetDistance = 0.25f;
-    [SerializeField] private float _linePreferenceLateralScale = 0.4f;
+    [SerializeField] private float _overtakeFraction = 0.35f;
+    [SerializeField] private float _defendFraction = 0.25f;
+    [SerializeField] private float _linePreferenceFraction = 0.3f;
     [SerializeField] private float _overtakeTimeout = 3f;
     [SerializeField] private float _defendTimeout = 1.5f;
 
@@ -113,6 +163,8 @@ public class AIController : RacerBase
 
     [System.NonSerialized] public Vector3 DebugSteeringTarget;
     [System.NonSerialized] public float DebugTargetSpeed;
+    [System.NonSerialized] public float DebugThrottle;
+    [System.NonSerialized] public float DebugBrake;
 
     protected override void Awake()
     {
@@ -211,12 +263,21 @@ public class AIController : RacerBase
             float throttle = Mathf.Clamp01(speedError / ThrottleSoftnessRange);
             float bandedAcceleration = _skillAcceleration * _bandingMultiplier * _bandingMultiplier;
             currentSpeed += bandedAcceleration * throttle * Time.deltaTime;
+            DebugThrottle = throttle;
+            DebugBrake = 0f;
         }
         else if (-speedError > CoastingOverspeedTolerance)
         {
             currentSpeed = Mathf.Max(currentSpeed - _brakeForce * Time.deltaTime, targetSpeed);
+            DebugThrottle = 0f;
+            DebugBrake = 1f;
         }
-        // Small overspeed: coast — drag and engine braking shed it naturally.
+        else
+        {
+            // Small overspeed: coast — drag and engine braking shed it naturally.
+            DebugThrottle = 0f;
+            DebugBrake = 0f;
+        }
     }
 
     private void ApplyDrag()
@@ -239,9 +300,25 @@ public class AIController : RacerBase
         float desiredHeading = CalculateDesiredHeading();
         float headingDelta = Mathf.DeltaAngle(heading, desiredHeading);
         float lowSpeedFactor = Mathf.Clamp01(currentSpeed / LowSpeedSteeringThreshold);
-        float highSpeedFactor = Mathf.Lerp(1f, _minimumHighSpeedSteeringFactor, currentSpeed / _topSpeed);
+        float highSpeedFactor = CalculateHighSpeedSteeringFactor();
         float maximumSteerThisFrame = _steeringRate * lowSpeedFactor * highSpeedFactor * Time.deltaTime;
         heading += Mathf.Clamp(headingDelta, -maximumSteerThisFrame, maximumSteerThisFrame);
+    }
+
+    private float CalculateHighSpeedSteeringFactor()
+    {
+        if (currentSpeed <= SteeringFullAuthoritySpeed)
+        {
+            return 1f;
+        }
+        if (currentSpeed <= SteeringMidSpeed)
+        {
+            return Mathf.Lerp(1f, SteeringMidFactor,
+                (currentSpeed - SteeringFullAuthoritySpeed) /
+                (SteeringMidSpeed - SteeringFullAuthoritySpeed));
+        }
+        return Mathf.Lerp(SteeringMidFactor, _minimumHighSpeedSteeringFactor,
+            (currentSpeed - SteeringMidSpeed) / (_topSpeed - SteeringMidSpeed));
     }
 
     // ── FSM ────────────────────────────────────────────────────────────────
@@ -279,7 +356,7 @@ public class AIController : RacerBase
 
     private void UpdateRace()
     {
-        _targetLateralOffset = LinePreferenceOffset();
+        _targetLateralOffset = CalculateApexTimedLateralOffset();
 
         if (_standings == null)
         {
@@ -292,10 +369,13 @@ public class AIController : RacerBase
             float progressGap = carAhead.RaceProgress - RaceProgress;
             if (progressGap >= 0f && progressGap < _overtakeThresholdProgress)
             {
-                // Go to the side the car ahead isn't using
-                _overtakeSide = (carAhead.LateralPosition >= 0f) ? -1f : 1f;
-                TransitionTo(AIState.Overtake);
-                return;
+                float proposedSide = (carAhead.LateralPosition >= 0f) ? -1f : 1f;
+                if (IsOvertakeCurvatureFavorable(proposedSide))
+                {
+                    _overtakeSide = proposedSide;
+                    TransitionTo(AIState.Overtake);
+                    return;
+                }
             }
         }
 
@@ -314,7 +394,7 @@ public class AIController : RacerBase
 
     private void UpdateOvertake()
     {
-        _targetLateralOffset = _overtakeSide * _overtakeOffset;
+        _targetLateralOffset = _overtakeSide * MaxLateralOffset * _overtakeFraction;
 
         RacerBase carAhead = null;
         if (_standings != null)
@@ -349,7 +429,7 @@ public class AIController : RacerBase
 
             if (carBehind != null)
             {
-                _targetLateralOffset = Mathf.Sign(carBehind.LateralPosition) * _defendLateralOffsetDistance;
+                _targetLateralOffset = Mathf.Sign(carBehind.LateralPosition) * MaxLateralOffset * _defendFraction;
             }
 
             _defendMoveDone = true;
@@ -391,12 +471,85 @@ public class AIController : RacerBase
         _stateTimer = 0f;
     }
 
+    // Samples the look-ahead tangent and checks whether the proposed overtake side
+    // is the inside (or a straight) rather than the outside of an upcoming corner.
+    // Uses dot(overtakeSide × right, lookAheadForward): negative past the suppress
+    // threshold means the AI would dive to the outside — block the commit.
+    private bool IsOvertakeCurvatureFavorable(float overtakeSide)
+    {
+        if (SplineTrack == null || SplineTrack.TrackLength <= 0f)
+        {
+            return true;
+        }
+
+        float lookAheadDistance = currentSpeed * MphToUnityUnitsPerSecond * OvertakeCurvatureLookAheadTime;
+        float lookAheadProgress = splineProgress + lookAheadDistance / SplineTrack.TrackLength;
+
+        TrackSample currentSample = SplineTrack.Evaluate(splineProgress);
+        TrackSample aheadSample = SplineTrack.Evaluate(lookAheadProgress);
+
+        float curvatureDot = Vector3.Dot(currentSample.right * overtakeSide, aheadSample.forward);
+        return curvatureDot >= OvertakeCurvatureSuppressThreshold;
+    }
+
     // Line preference is a personality lean around the racing line: 0.5 sits
     // exactly on it, 0 and 1 lean to either side. It must never become a
     // permanent handicap that drags a driver off the optimal path.
     private float LinePreferenceOffset()
     {
-        return (_profile.linePreference - 0.5f) * _linePreferenceLateralScale;
+        return (_profile.linePreference - 0.5f) * MaxLateralOffset * _linePreferenceFraction;
+    }
+
+    // Blends the line-preference lean in as the car approaches a braking zone,
+    // with the blend point shifted by apexTiming so the lateral and longitudinal
+    // commitments stay coupled: early apexers move to their line sooner, late
+    // apexers stay neutral until deeper into the approach.
+    private float CalculateApexTimedLateralOffset()
+    {
+        if (SplineTrack == null || SplineTrack.TrackLength <= 0f)
+        {
+            return LinePreferenceOffset();
+        }
+
+        float lapProgress = splineProgress - Mathf.Floor(splineProgress);
+        float maximumProximity = 0f;
+        BrakingZone[] zones = SilverstoneBrakingZones.Zones;
+
+        for (int i = 0; i < zones.Length; i++)
+        {
+            BrakingZone zone = zones[i];
+
+            bool insideZone = lapProgress >= zone.entryProgress && lapProgress <= zone.exitProgress;
+            if (insideZone)
+            {
+                maximumProximity = 1f;
+                break;
+            }
+
+            float progressToEntry = zone.entryProgress - lapProgress;
+            if (progressToEntry < 0f)
+            {
+                progressToEntry += 1f;
+            }
+
+            float distanceToEntry = progressToEntry * SplineTrack.TrackLength;
+            if (distanceToEntry > BrakingHorizonDistance)
+            {
+                continue;
+            }
+
+            float brakeZoneLength = (zone.exitProgress - zone.entryProgress) * SplineTrack.TrackLength;
+            float apexShift = _profile.apexTiming * brakeZoneLength * ApexBrakeShiftScale;
+            float effectiveDistanceToEntry = distanceToEntry - apexShift;
+            float proximity = 1f - Mathf.Clamp01(effectiveDistanceToEntry / BrakingHorizonDistance);
+
+            if (proximity > maximumProximity)
+            {
+                maximumProximity = proximity;
+            }
+        }
+
+        return LinePreferenceOffset() * maximumProximity;
     }
 
     // ── Speed & Steering ───────────────────────────────────────────────────
@@ -410,7 +563,7 @@ public class AIController : RacerBase
 
         float lapProgress = splineProgress - Mathf.Floor(splineProgress);
         float cornerMultiplier = AISpeedModel.CornerSkillMultiplier(_profile);
-        float targetSpeed = _topSpeed;
+        float targetSpeed = CalculateDynamicTargetSpeed(lapProgress, cornerMultiplier);
 
         BrakingZone[] zones = SilverstoneBrakingZones.Zones;
         for (int i = 0; i < zones.Length; i++)
@@ -460,10 +613,52 @@ public class AIController : RacerBase
             return _topSpeed;
         }
 
-        // Fastest speed we can carry right now and still brake down to the
-        // zone speed just before turn-in.
-        float brakingDistance = Mathf.Max(distanceToEntry - BrakingEntrySlack, 0f);
+        // Longitudinal brake-point shift: positive apexTiming (early apex) reduces
+        // the effective braking distance, forcing earlier deceleration.
+        float brakeZoneLength = (zone.exitProgress - zone.entryProgress) * SplineTrack.TrackLength;
+        float apexShift = _profile.apexTiming * brakeZoneLength * ApexBrakeShiftScale;
+        float brakingDistance = Mathf.Max(distanceToEntry - BrakingEntrySlack - apexShift, 0f);
         return AISpeedModel.BrakingAllowedSpeed(zoneSpeed, _brakeForce, brakingDistance);
+    }
+
+    // Samples spline curvature at DynamicLookAheadSteps steps ahead and returns
+    // the minimum braking-allowed speed across the window. Acts as the primary
+    // speed target on open track; authored zones override it for tight corners.
+    private float CalculateDynamicTargetSpeed(float lapProgress, float cornerMultiplier)
+    {
+        float effectiveGrip = AISpeedModel.EffectiveLateralGrip(_profile.brakingCourage);
+        float progressStep = CurvatureStepDistance / SplineTrack.TrackLength;
+        float minimumAllowedSpeed = _topSpeed;
+        TrackSample previousSample = SplineTrack.Evaluate(lapProgress);
+
+        for (int stepIndex = 1; stepIndex <= DynamicLookAheadSteps; stepIndex++)
+        {
+            TrackSample sample = SplineTrack.Evaluate(lapProgress + stepIndex * progressStep);
+            float angleDelta = Vector3.Angle(previousSample.forward, sample.forward);
+            float curvature = angleDelta / CurvatureStepDistance;
+
+            float rawCornerSpeed = AISpeedModel.CornerSpeedFromGrip(curvature, effectiveGrip);
+            if (rawCornerSpeed > _topSpeed)
+            {
+                previousSample = sample;
+                continue;
+            }
+
+            float cornerSpeed = Mathf.Max(
+                rawCornerSpeed * cornerMultiplier * _consistencyNoise,
+                AISpeedModel.AbsoluteMinimumCornerSpeed);
+            float distance = stepIndex * CurvatureStepDistance;
+            float allowedSpeed = AISpeedModel.BrakingAllowedSpeed(cornerSpeed, _brakeForce, distance);
+
+            if (allowedSpeed < minimumAllowedSpeed)
+            {
+                minimumAllowedSpeed = allowedSpeed;
+            }
+
+            previousSample = sample;
+        }
+
+        return minimumAllowedSpeed;
     }
 
     private Vector3 RacingLinePosition(float progress, float lineWidth)
@@ -486,7 +681,7 @@ public class AIController : RacerBase
         }
 
         float lineOffset = RacingLine.SampleOffset(
-            SplineTrack, splineProgress, MaxLateralOffset * RacingLineWidthFraction);
+            SplineTrack, splineProgress, GlobalCorridorHalfWidth * RacingLineWidthFraction);
         float offsetLimit = MaxLateralOffset * SteeringOffsetMargin;
         float intendedOffset = Mathf.Clamp(lineOffset + _targetLateralOffset, -offsetLimit, offsetLimit);
 
@@ -525,7 +720,7 @@ public class AIController : RacerBase
         // around it (overtake to one side of the line, defend off-line, etc.),
         // clamped so a manoeuvre near an apex never aims at the boundary itself.
         float lineOffset = RacingLine.SampleOffset(
-            SplineTrack, targetProgress, MaxLateralOffset * RacingLineWidthFraction);
+            SplineTrack, targetProgress, GlobalCorridorHalfWidth * RacingLineWidthFraction);
         float offsetLimit = MaxLateralOffset * SteeringOffsetMargin;
         float totalOffset = Mathf.Clamp(lineOffset + _targetLateralOffset, -offsetLimit, offsetLimit);
 
@@ -589,7 +784,7 @@ public class AIController : RacerBase
             {
                 // Baked racing line for the stretch ahead
                 Gizmos.color = Color.magenta;
-                float lineWidth = MaxLateralOffset * RacingLineWidthFraction;
+                float lineWidth = GlobalCorridorHalfWidth * RacingLineWidthFraction;
                 float stepProgress = CurvatureStepDistance / SplineTrack.TrackLength;
                 Vector3 previousPoint = RacingLinePoint(splineProgress, lineWidth);
                 for (int step = 1; step <= BrakingLookAheadSteps; step++)
@@ -613,7 +808,7 @@ public class AIController : RacerBase
         }
 
         // Full baked racing line around the whole track; braking zones in red
-        float lineWidth = MaxLateralOffset * RacingLineWidthFraction;
+        float lineWidth = GlobalCorridorHalfWidth * RacingLineWidthFraction;
         const int segments = 256;
         Vector3 previousPoint = RacingLinePoint(0f, lineWidth);
         for (int i = 1; i <= segments; i++)
