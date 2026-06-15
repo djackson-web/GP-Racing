@@ -26,6 +26,11 @@ public static class AISpeedModel
     public const float TopGearMaximumSpeed = 212f;
     // v² = vCorner² + 2·a·d, with brake force in mph/s and distance in track units
     public const float MphSquaredPerBrakeUnit = 2f / RacerBase.MphToUnityUnitsPerSecond;
+    // Grip model for v = √(grip·r). effectiveGrip = base × (min + courage × range)
+    // so at brakingCourage=0 the driver gets 80 % of grip, at 1 they get 120 %.
+    public const float LateralGripBase = 4.0f;
+    public const float BrakingCourageGripMin = 0.8f;
+    public const float BrakingCourageGripRange = 0.4f;
 
     /// <summary>
     /// How close this driver gets to the ideal corner speed. Skill dominates,
@@ -75,6 +80,31 @@ public static class AISpeedModel
     {
         return Mathf.Sqrt(cornerSpeed * cornerSpeed
             + MphSquaredPerBrakeUnit * brakeForce * brakingDistance);
+    }
+
+    /// <summary>
+    /// Lateral grip constant scaled by the driver's braking courage:
+    /// braver drivers carry more speed into corners.
+    /// </summary>
+    public static float EffectiveLateralGrip(float brakingCourage)
+    {
+        return LateralGripBase * (BrakingCourageGripMin + brakingCourage * BrakingCourageGripRange);
+    }
+
+    /// <summary>
+    /// Maximum safe speed (mph) through a curve of the given curvature using
+    /// the centripetal formula v = √(grip × r). Returns float.MaxValue for
+    /// zero curvature (straight, unconstrained).
+    /// </summary>
+    public static float CornerSpeedFromGrip(float curvatureDegreesPerUnit, float effectiveLateralGrip)
+    {
+        if (curvatureDegreesPerUnit <= 0f)
+        {
+            return float.MaxValue;
+        }
+        float radiusUnits = Mathf.Rad2Deg / curvatureDegreesPerUnit;
+        float speedUnitsPerSecond = Mathf.Sqrt(effectiveLateralGrip * radiusUnits);
+        return speedUnitsPerSecond / RacerBase.MphToUnityUnitsPerSecond;
     }
 
     /// <summary>
