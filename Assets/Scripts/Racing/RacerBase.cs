@@ -61,10 +61,10 @@ public abstract class RacerBase : MonoBehaviour
 
     protected bool IsAtTrackLimit
     {
-        get { return Mathf.Abs(lateralOffset) >= _maxLateralOffset; }
+        get { return Mathf.Abs(lateralOffset) >= MaxLateralOffset; }
     }
 
-    protected float MaxLateralOffset
+    protected virtual float MaxLateralOffset
     {
         get { return _maxLateralOffset; }
     }
@@ -187,7 +187,7 @@ public abstract class RacerBase : MonoBehaviour
 
         splineProgress += forwardSpeed / _splineTrack.TrackLength * Time.deltaTime;
         lateralOffset += lateralVelocity * Time.deltaTime;
-        lateralOffset = Mathf.Clamp(lateralOffset, -_maxLateralOffset, _maxLateralOffset);
+        lateralOffset = Mathf.Clamp(lateralOffset, -MaxLateralOffset, MaxLateralOffset);
     }
 
     public void ResetToSpline(float progress, float offset)

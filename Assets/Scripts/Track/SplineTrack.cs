@@ -27,6 +27,53 @@ public class SplineTrack : MonoBehaviour
     public float TrackLength { get; private set; }
 
     /// <summary>
+    /// The smallest half-width across the whole track in world units.
+    /// Used by the racing-line baker so the baked path never exits the narrowest
+    /// section. Set at runtime by <see cref="RoadMeshBuilder"/>.
+    /// </summary>
+    public float HalfWidth { get; private set; }
+
+    private float[] _halfWidthSamples;
+
+    /// <summary>
+    /// Called by <see cref="RoadMeshBuilder"/> with one half-width sample per
+    /// mesh vertex so width can vary around the circuit. Derives
+    /// <see cref="HalfWidth"/> as the minimum of all samples.
+    /// </summary>
+    internal void SetWidthSamples(float[] samples)
+    {
+        _halfWidthSamples = samples;
+        float min = float.MaxValue;
+        for (int i = 0; i < samples.Length; i++)
+        {
+            if (samples[i] < min)
+            {
+                min = samples[i];
+            }
+        }
+        HalfWidth = min > 0f ? min : 0f;
+    }
+
+    /// <summary>
+    /// Returns the road half-width at the given spline progress, linearly
+    /// interpolated between the nearest baked samples.
+    /// Falls back to <see cref="HalfWidth"/> if no samples have been set.
+    /// </summary>
+    public float SampleHalfWidth(float progress)
+    {
+        if (_halfWidthSamples == null || _halfWidthSamples.Length < 2)
+        {
+            return HalfWidth;
+        }
+
+        float wrapped = Mathf.Repeat(progress, 1f);
+        float scaled = wrapped * (_halfWidthSamples.Length - 1);
+        int indexA = Mathf.FloorToInt(scaled);
+        float blend = scaled - indexA;
+        return Mathf.Lerp(_halfWidthSamples[indexA], _halfWidthSamples[indexA + 1], blend);
+    }
+
+    /// <summary>
     /// Caches the <see cref="SplineContainer"/> reference and computes
     /// the initial track length.
     /// </summary>

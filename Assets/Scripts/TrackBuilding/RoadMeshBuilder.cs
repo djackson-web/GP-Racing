@@ -11,19 +11,37 @@ public class RoadMeshBuilder : MonoBehaviour
     [SerializeField] private SplineTrack splineTrack;
     [SerializeField] private float roadWidth = 20f;
     [SerializeField] private int resolution = 500;
+    // Multiplier curve (Y-axis) over lap progress (X-axis, 0–1). Default flat
+    // at 1.0 = uniform width. Set keys in the Inspector to narrow chicanes or
+    // widen pit straights. Start and end values should match for a seamless loop.
+    [SerializeField] private AnimationCurve _roadWidthCurve = AnimationCurve.Constant(0f, 1f, 1f);
 
     private void Start()
     {
-        BuildMesh();
+        float[] halfWidthSamples = BakeWidthSamples();
+        BuildMesh(halfWidthSamples);
+        splineTrack.SetWidthSamples(halfWidthSamples);
     }
 
-    private void BuildMesh()
+    private float[] BakeWidthSamples()
+    {
+        float[] samples = new float[resolution];
+        for (int i = 0; i < resolution; i++)
+        {
+            float progress = (float)i / (resolution - 1);
+            float multiplier = _roadWidthCurve.Evaluate(progress);
+            samples[i] = roadWidth * Mathf.Max(multiplier, 0f) * 0.5f;
+        }
+        return samples;
+    }
+
+    private void BuildMesh(float[] halfWidthSamples)
     {
         Vector3[] vertices = new Vector3[resolution * VerticesPerSample];
         int[] triangles = new int[(resolution - 1) * TriangleIndicesPerSegment];
         Vector2[] uvs = new Vector2[resolution * VerticesPerSample];
 
-        PopulateVertices(vertices, uvs);
+        PopulateVertices(vertices, uvs, halfWidthSamples);
         PopulateTriangles(triangles);
 
         Mesh mesh = new Mesh();
@@ -36,24 +54,22 @@ public class RoadMeshBuilder : MonoBehaviour
         GetComponent<MeshFilter>().mesh = mesh;
     }
 
-    private void PopulateVertices(Vector3[] vertices, Vector2[] uvs)
+    private void PopulateVertices(Vector3[] vertices, Vector2[] uvs, float[] halfWidthSamples)
     {
         for (int sampleIndex = 0; sampleIndex < resolution; sampleIndex++)
         {
             float progress = (float)sampleIndex / (resolution - 1);
             TrackSample sample = splineTrack.Evaluate(progress);
 
-            AssignRoadVertices(vertices, sample, sampleIndex);
+            AssignRoadVertices(vertices, sample, sampleIndex, halfWidthSamples[sampleIndex]);
             AssignRoadUVs(uvs, progress, sampleIndex);
         }
     }
 
-    private void AssignRoadVertices(Vector3[] vertices, TrackSample sample, int sampleIndex)
+    private void AssignRoadVertices(Vector3[] vertices, TrackSample sample, int sampleIndex, float halfWidth)
     {
-        float halfRoadWidth = roadWidth / 2f;
-
-        Vector3 leftVertex = sample.position - sample.right * halfRoadWidth;
-        Vector3 rightVertex = sample.position + sample.right * halfRoadWidth;
+        Vector3 leftVertex = sample.position - sample.right * halfWidth;
+        Vector3 rightVertex = sample.position + sample.right * halfWidth;
 
         int baseIndex = sampleIndex * VerticesPerSample;
         vertices[baseIndex] = leftVertex;
