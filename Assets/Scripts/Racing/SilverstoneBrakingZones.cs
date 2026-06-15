@@ -12,21 +12,21 @@ public static class SilverstoneBrakingZones
 {
     public static readonly BrakingZone[] Zones =
     {
-        new BrakingZone { cornerName = "Copse", entryProgress = 0.0355f, exitProgress = 0.0560f, targetSpeed = 128f },
-        new BrakingZone { cornerName = "Maggotts", entryProgress = 0.1270f, exitProgress = 0.1310f, targetSpeed = 142f },
-        new BrakingZone { cornerName = "Becketts", entryProgress = 0.1444f, exitProgress = 0.2060f, targetSpeed = 106f },
-        new BrakingZone { cornerName = "Chapel", entryProgress = 0.2200f, exitProgress = 0.2270f, targetSpeed = 145f },
-        new BrakingZone { cornerName = "Stowe", entryProgress = 0.3525f, exitProgress = 0.3830f, targetSpeed = 108f },
-        new BrakingZone { cornerName = "Vale", entryProgress = 0.4395f, exitProgress = 0.4480f, targetSpeed = 60f },
-        new BrakingZone { cornerName = "Club", entryProgress = 0.4525f, exitProgress = 0.4600f, targetSpeed = 68f },
-        new BrakingZone { cornerName = "Club Exit", entryProgress = 0.4815f, exitProgress = 0.4875f, targetSpeed = 64f },
-        new BrakingZone { cornerName = "Abbey", entryProgress = 0.5715f, exitProgress = 0.5840f, targetSpeed = 110f },
-        new BrakingZone { cornerName = "Farm", entryProgress = 0.6050f, exitProgress = 0.6160f, targetSpeed = 135f },
-        new BrakingZone { cornerName = "Village", entryProgress = 0.6520f, exitProgress = 0.6630f, targetSpeed = 62f },
-        new BrakingZone { cornerName = "The Loop", entryProgress = 0.6760f, exitProgress = 0.6905f, targetSpeed = 61f },
-        new BrakingZone { cornerName = "Aintree", entryProgress = 0.7095f, exitProgress = 0.7180f, targetSpeed = 96f },
-        new BrakingZone { cornerName = "Brooklands", entryProgress = 0.8468f, exitProgress = 0.8680f, targetSpeed = 88f },
-        new BrakingZone { cornerName = "Luffield", entryProgress = 0.8790f, exitProgress = 0.9090f, targetSpeed = 84f },
-        new BrakingZone { cornerName = "Woodcote", entryProgress = 0.9530f, exitProgress = 0.9640f, targetSpeed = 156f }
+        new BrakingZone { cornerName = "Copse", entryProgress = 0.0355f, exitProgress = 0.0560f, targetSpeed = 170f },
+        new BrakingZone { cornerName = "Maggotts", entryProgress = 0.1270f, exitProgress = 0.1310f, targetSpeed = 188f },
+        new BrakingZone { cornerName = "Becketts", entryProgress = 0.1444f, exitProgress = 0.2060f, targetSpeed = 150f },
+        new BrakingZone { cornerName = "Chapel", entryProgress = 0.2200f, exitProgress = 0.2270f, targetSpeed = 148f },
+        new BrakingZone { cornerName = "Stowe", entryProgress = 0.3525f, exitProgress = 0.3830f, targetSpeed = 168f },
+        new BrakingZone { cornerName = "Vale", entryProgress = 0.4395f, exitProgress = 0.4480f, targetSpeed = 82f },
+        new BrakingZone { cornerName = "Club", entryProgress = 0.4525f, exitProgress = 0.4600f, targetSpeed = 82f },
+        new BrakingZone { cornerName = "Club Exit", entryProgress = 0.4815f, exitProgress = 0.4875f, targetSpeed = 86f },
+        new BrakingZone { cornerName = "Abbey", entryProgress = 0.5715f, exitProgress = 0.5840f, targetSpeed = 142f },
+        new BrakingZone { cornerName = "Farm", entryProgress = 0.6050f, exitProgress = 0.6160f, targetSpeed = 160f },
+        new BrakingZone { cornerName = "Village", entryProgress = 0.6520f, exitProgress = 0.6630f, targetSpeed = 94f },
+        new BrakingZone { cornerName = "The Loop", entryProgress = 0.6760f, exitProgress = 0.6905f, targetSpeed = 95f },
+        new BrakingZone { cornerName = "Aintree", entryProgress = 0.7095f, exitProgress = 0.7180f, targetSpeed = 101f },
+        new BrakingZone { cornerName = "Brooklands", entryProgress = 0.8468f, exitProgress = 0.8680f, targetSpeed = 80f },
+        new BrakingZone { cornerName = "Luffield", entryProgress = 0.8790f, exitProgress = 0.9090f, targetSpeed = 85f },
+        new BrakingZone { cornerName = "Woodcote", entryProgress = 0.9530f, exitProgress = 0.9640f, targetSpeed = 162f }
     };
 }
