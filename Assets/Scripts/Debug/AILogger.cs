@@ -10,6 +10,7 @@ public class AILogger : MonoBehaviour
     [SerializeField] private float _logInterval = 0.5f;
     [SerializeField] private bool _logStateChanges = true;
     [SerializeField] private string _fileName = "AI_log.txt";
+    [SerializeField] private PlayerController _player;
 
     private StreamWriter _writer;
     private AIController[] _controllers = new AIController[0];
@@ -20,7 +21,7 @@ public class AILogger : MonoBehaviour
     {
         string path = Path.GetFullPath(Path.Combine(Application.dataPath, "..", _fileName));
         _writer = new StreamWriter(path, append: false);
-        _writer.WriteLine("Time,Car,State,Speed,TargetSpeed,SplineProgress,Lap,LateralOffset,Banding,Event");
+        _writer.WriteLine("Time,Car,State,Speed,Throttle,Brake,TargetSpeed,SplineProgress,Lap,LateralOffset,Banding,Event");
         _writer.Flush();
         Debug.Log($"[AILogger] Logging to: {path}");
 
@@ -62,6 +63,11 @@ public class AILogger : MonoBehaviour
 
     private void WriteAll(string evt)
     {
+        if (_player != null)
+        {
+            WritePlayerRow(evt);
+        }
+
         foreach (AIController aiController in _controllers)
         {
             if (aiController != null)
@@ -69,6 +75,27 @@ public class AILogger : MonoBehaviour
                 WriteRow(aiController, evt);
             }
         }
+    }
+
+    private void WritePlayerRow(string evt)
+    {
+        float raw = _player.SplineProgress;
+        float frac = raw - Mathf.Floor(raw);
+
+        _writer.WriteLine(
+            $"{Time.time:F2}," +
+            $"PLAYER," +
+            $"—," +
+            $"{_player.CurrentSpeed:F1}," +
+            $"{_player.DebugThrottle:F2}," +
+            $"{_player.DebugBrake:F2}," +
+            $"—," +
+            $"{frac:F4}," +
+            $"{_player.LapCount}," +
+            $"{_player.LateralPosition:F2}," +
+            $"—," +
+            $"{evt}");
+        _writer.Flush();
     }
 
     private void WriteRow(AIController aiController, string evt)
@@ -83,6 +110,8 @@ public class AILogger : MonoBehaviour
             $"{aiController.gameObject.name}," +
             $"{aiController.DebugState}," +
             $"{aiController.CurrentSpeed:F1}," +
+            $"{aiController.DebugThrottle:F2}," +
+            $"{aiController.DebugBrake:F2}," +
             $"{aiController.DebugTargetSpeed:F1}," +
             $"{frac:F4}," +
             $"{aiController.LapCount}," +

@@ -7,7 +7,7 @@ public class AIDebugOverlay : MonoBehaviour
 
     private const float PanelX = 10f;
     private const float PanelY = 10f;
-    private const float PanelWidth = 640f;
+    private const float PanelWidth = 728f;
     private const float RowHeight = 20f;
     private const float HeaderHeight = 24f;
     private const float Padding = 6f;
@@ -18,10 +18,11 @@ public class AIDebugOverlay : MonoBehaviour
     private static readonly Color DefendStateColor = new Color(0.4f, 0.6f, 1f);
     private static readonly Color PlayerRowColor = new Color(1f, 0.85f, 0.2f);
 
-    private static readonly float[] ColumnWidths = { 90f, 68f, 56f, 56f, 56f, 56f, 56f, 46f, 40f, 58f, 58f };
+    private static readonly float[] ColumnWidths = { 90f, 68f, 56f, 44f, 44f, 56f, 56f, 56f, 56f, 46f, 40f, 58f, 58f };
     private static readonly string[] ColumnHeaders =
-        { "Car Name", "State", "Speed", "TargSpd", "LatOff", "TargLat", "Band", "BandOn", "Lap", "CurLap", "LastLap" };
+        { "Car Name", "State", "Speed", "Throt", "Brake", "TargSpd", "LatOff", "TargLat", "Band", "BandOn", "Lap", "CurLap", "LastLap" };
 
+    private PlayerController _playerController;
     private AIController[] _controllers = new AIController[0];
     private int _frameCounter;
 
@@ -45,6 +46,14 @@ public class AIDebugOverlay : MonoBehaviour
     private GUIStyle _bandActiveStyle = new GUIStyle();
     private GUIStyle _bandInactiveStyle = new GUIStyle();
     private bool _stylesReady;
+
+    private void Start()
+    {
+        if (_player != null)
+        {
+            _playerController = _player.GetComponent<PlayerController>();
+        }
+    }
 
     private void Update()
     {
@@ -180,18 +189,24 @@ public class AIDebugOverlay : MonoBehaviour
         }
 
         float curLap = _playerNextLapThreshold >= 0f ? Time.time - _playerLapStart : 0f;
+        float throttle = _playerController != null ? _playerController.DebugThrottle : 0f;
+        float brake = _playerController != null ? _playerController.DebugBrake : 0f;
+        GUIStyle throttleStyle = throttle > 0.01f ? _bandBoostStyle : _playerStyle;
+        GUIStyle brakeStyle = brake > 0.01f ? _bandSlowStyle : _playerStyle;
         float x = startX;
         x = DrawCell(x, startY, 0, "PLAYER", RowHeight, _playerStyle);
         x = DrawCell(x, startY, 1, "—", RowHeight, _playerStyle);
         x = DrawCell(x, startY, 2, _player.CurrentSpeed.ToString("F0"), RowHeight, _playerStyle);
-        x = DrawCell(x, startY, 3, "—", RowHeight, _playerStyle);
-        x = DrawCell(x, startY, 4, _player.LateralPosition.ToString("F2"), RowHeight, _playerStyle);
+        x = DrawCell(x, startY, 3, FormatPercent(throttle), RowHeight, throttleStyle);
+        x = DrawCell(x, startY, 4, FormatPercent(brake), RowHeight, brakeStyle);
         x = DrawCell(x, startY, 5, "—", RowHeight, _playerStyle);
-        x = DrawCell(x, startY, 6, "—", RowHeight, _playerStyle);
+        x = DrawCell(x, startY, 6, _player.LateralPosition.ToString("F2"), RowHeight, _playerStyle);
         x = DrawCell(x, startY, 7, "—", RowHeight, _playerStyle);
-        x = DrawCell(x, startY, 8, _player.LapCount.ToString(), RowHeight, _playerStyle);
-        x = DrawCell(x, startY, 9, FormatLapTime(curLap), RowHeight, _playerStyle);
-        DrawCell(x, startY, 10, FormatLapTime(_playerLastLap), RowHeight, _playerStyle);
+        x = DrawCell(x, startY, 8, "—", RowHeight, _playerStyle);
+        x = DrawCell(x, startY, 9, "—", RowHeight, _playerStyle);
+        x = DrawCell(x, startY, 10, _player.LapCount.ToString(), RowHeight, _playerStyle);
+        x = DrawCell(x, startY, 11, FormatLapTime(curLap), RowHeight, _playerStyle);
+        DrawCell(x, startY, 12, FormatLapTime(_playerLastLap), RowHeight, _playerStyle);
     }
 
     private void DrawDataRow(AIController ai, int index, float startX, float startY)
@@ -200,21 +215,31 @@ public class AIDebugOverlay : MonoBehaviour
         float curLap = index < _aiLapStarts.Length ? Time.time - _aiLapStarts[index] : 0f;
         float lastLap = index < _aiLastLaps.Length ? _aiLastLaps[index] : -1f;
 
+        GUIStyle throttleStyle = ai.DebugThrottle > 0.01f ? _bandBoostStyle : _rowStyle;
+        GUIStyle brakeStyle = ai.DebugBrake > 0.01f ? _bandSlowStyle : _rowStyle;
         float x = startX;
         x = DrawCell(x, startY, 0, ai.gameObject.name, RowHeight, _rowStyle);
         x = DrawCell(x, startY, 1, state.ToString(), RowHeight, GetStyleForState(state));
         x = DrawCell(x, startY, 2, ai.CurrentSpeed.ToString("F0"), RowHeight, _rowStyle);
-        x = DrawCell(x, startY, 3, ai.DebugTargetSpeed.ToString("F0"), RowHeight, _rowStyle);
-        x = DrawCell(x, startY, 4, ai.LateralPosition.ToString("F2"), RowHeight, _rowStyle);
-        x = DrawCell(x, startY, 5, ai.DebugTargetLateralOffset.ToString("F2"), RowHeight, _rowStyle);
+        x = DrawCell(x, startY, 3, FormatPercent(ai.DebugThrottle), RowHeight, throttleStyle);
+        x = DrawCell(x, startY, 4, FormatPercent(ai.DebugBrake), RowHeight, brakeStyle);
+        x = DrawCell(x, startY, 5, ai.DebugTargetSpeed.ToString("F0"), RowHeight, _rowStyle);
+        x = DrawCell(x, startY, 6, ai.LateralPosition.ToString("F2"), RowHeight, _rowStyle);
+        x = DrawCell(x, startY, 7, ai.DebugTargetLateralOffset.ToString("F2"), RowHeight, _rowStyle);
         float banding = ai.DebugBandingMultiplier;
         GUIStyle bandStyle = banding > 1.001f ? _bandBoostStyle : banding < 0.999f ? _bandSlowStyle : _rowStyle;
-        x = DrawCell(x, startY, 6, banding.ToString("F3"), RowHeight, bandStyle);
+        x = DrawCell(x, startY, 8, banding.ToString("F3"), RowHeight, bandStyle);
         GUIStyle bandActiveStyle = ai.DebugBandingActive ? _bandActiveStyle : _bandInactiveStyle;
-        x = DrawCell(x, startY, 7, ai.DebugBandingActive ? "YES" : "no", RowHeight, bandActiveStyle);
-        x = DrawCell(x, startY, 8, ai.LapCount.ToString(), RowHeight, _rowStyle);
-        x = DrawCell(x, startY, 9, FormatLapTime(curLap), RowHeight, _rowStyle);
-        DrawCell(x, startY, 10, FormatLapTime(lastLap), RowHeight, _rowStyle);
+        x = DrawCell(x, startY, 9, ai.DebugBandingActive ? "YES" : "no", RowHeight, bandActiveStyle);
+        x = DrawCell(x, startY, 10, ai.LapCount.ToString(), RowHeight, _rowStyle);
+        x = DrawCell(x, startY, 11, FormatLapTime(curLap), RowHeight, _rowStyle);
+        DrawCell(x, startY, 12, FormatLapTime(lastLap), RowHeight, _rowStyle);
+    }
+
+    private static string FormatPercent(float value)
+    {
+        if (value <= 0.01f) return "—";
+        return Mathf.RoundToInt(value * 100f).ToString();
     }
 
     private static string FormatLapTime(float seconds)

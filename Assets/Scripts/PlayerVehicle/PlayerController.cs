@@ -24,6 +24,19 @@ public class PlayerController : RacerBase
 
     private bool _isCrashed;
 
+    private float _debugThrottle;
+    private float _debugBrake;
+
+    public float DebugThrottle
+    {
+        get { return _debugThrottle; }
+    }
+
+    public float DebugBrake
+    {
+        get { return _debugBrake; }
+    }
+
     private bool _isTrackingBrake;
     private float _brakeSessionStartSpeed;
     private float _brakeSessionStartTime;
@@ -58,6 +71,9 @@ public class PlayerController : RacerBase
         Vector2 input = _moveAction.ReadValue<Vector2>();
         float throttle = Mathf.Max(0f, input.y);
         float brake = Mathf.Max(0f, -input.y);
+
+        _debugThrottle = throttle;
+        _debugBrake = brake;
 
         ApplyThrottleAndBrake(throttle, brake);
         ApplyTrackLimitPenalty();
